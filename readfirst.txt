@@ -1,0 +1,15 @@
+The files and folders are taken from a working setup.
+Blindly running install.sh could work for you without 
+further configuration, if:
+
+	- You are running OpenBSD 5.2 i386
+	- Your wireless Network card was named athn0
+	- Your wired Network card was named alc0
+	- You wanted your wireless network to be 10.0.3.1/24
+	- Your wired network was 10.0.1.1/24
+	- Your default router was at 10.0.1.2
+	- You had no existing system configuration that mattered
+
+In all other cases, you will need to adjust the example config files
+to match your own setup, make backups of /etc/pf.conf etc, and only
+then copy over the given example configuration files.

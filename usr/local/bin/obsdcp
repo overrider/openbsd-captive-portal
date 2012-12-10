@@ -1,0 +1,178 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use diagnostics;
+use Sys::Syslog;
+
+use lib '/var/www/conf/';
+use Obsdcp_config;
+
+my $debug = 0;
+
+$SIG{'INT' } = 'interrupt';
+$SIG{'QUIT'} = 'interrupt';
+$SIG{'HUP' } = 'interrupt';
+$SIG{'TRAP'} = 'interrupt';
+$SIG{'ABRT'} = 'interrupt';
+$SIG{'STOP'} = 'interrupt';
+$SIG{'TERM'} = 'interrupt';
+
+sub interrupt {
+	my($signal) = @_;
+	&logit('info', "Interrupt caught, shutting down");
+	exit(1);
+}
+
+&daemonize;
+
+&logit('info', "Starting up");
+
+# $queue is defined in Obsdcp_config.pm
+if( ! -e $queue ){
+	&logit('info', "$queue does no exist");
+	exit(1);
+}
+
+# $allow is defined in Obsdcp_config.pm
+if( ! -e $allow ){
+	&logit('info', "$allow does no exist");
+	exit(1);
+}
+
+# $whitelist is defined in Obsdcp_config.pm
+if( ! -e $whitelist ){
+	&logit('info', "$whitelist does not exist");
+	exit(1);
+}
+
+my $last_purge = time();
+
+while(1){
+	my $current_time = time();
+	my $queue_filesize = (stat($queue))[7];
+	if($queue_filesize > 0 || $current_time - $last_purge > $purge_interval){
+		&logit('info', "Processing Queue") if $debug;
+		&process_queue();
+		$last_purge = time();
+	}
+	sleep(5);
+}
+
+sub process_queue(){
+	my $current_timestamp = time();
+	my @queue;
+	open QUEUE, "<", $queue or &logit('info', "Cannot open $queue file") && exit;
+	while(<QUEUE>){
+		chomp;
+		push(@queue,$_);
+	}
+	close QUEUE;
+
+	open QUEUE, ">", $queue or &logit('info', "Cannot open $queue file") && exit;
+	close QUEUE;
+
+	my %allow;
+	open ALLOW, "<", $allow or &logit('info', "Cannot open $allow file") && exit;
+	foreach(<ALLOW>){
+		chomp;
+		my($ip_address,$mac_address,$timestamp) = split(/ /,$_);
+		if($current_timestamp - $timestamp < $expiry_time){
+			$allow{$ip_address} = $mac_address . " " . $timestamp;
+		} else {
+			&untie_mac($ip_address,$mac_address);
+			&logit('info', "Expired $ip_address");
+		}
+	}
+	close ALLOW;
+
+	foreach(@queue){
+		if(!exists($allow{$_})){
+			my $mac_address = &get_mac($_);
+			&tie_mac($_,$mac_address);
+			$allow{$_} = $mac_address . " " . $current_timestamp;
+			&logit('info', "Added $_");
+		} else {
+			&logit('info', "Skipping $_");
+		}
+	}
+
+	my @whitelist;
+
+	open ALLOW, ">",$allow or &logit('info', "Cannot open $allow file") && exit;
+	foreach my $ip_address (keys %allow){
+		print ALLOW "$ip_address $allow{$ip_address}\n";
+		push(@whitelist,$ip_address);
+	}
+	close ALLOW;
+
+	@whitelist = sort(@whitelist);
+	open WHITE, ">", $whitelist or &logit('info', "Cannot open $whitelist file") && exit;
+	foreach(@whitelist){
+		print WHITE $_ . "\n";
+	}
+	close WHITE;
+
+	reload_pf();
+}
+
+sub reload_pf(){
+	system("pfctl -f /etc/pf.conf");
+}
+
+sub get_mac($){
+	my $ip = shift;
+	chomp(my @arp_table = `arp -an`);
+	foreach(@arp_table){
+		my @arp_entry = split(" ",$_);
+		if($arp_entry[1] =~ /\($ip\)/){
+			return $arp_entry[3];
+		}
+	}
+	return 0;
+}
+
+sub daemonize {
+	use POSIX;
+	POSIX::setsid or die "setsid: $!";
+	my $pid = fork ();
+	if ($pid < 0) {
+		die "fork: $!";
+	} elsif ($pid) {
+		exit 0;
+	}
+	chdir "/";
+	umask 0;
+	foreach (0 .. (POSIX::sysconf (&POSIX::_SC_OPEN_MAX) || 1024))
+	{ POSIX::close $_ }
+	open (STDIN, "</dev/null");
+	open (STDOUT, ">/dev/null");
+	open (STDERR, ">&STDOUT");
+}
+
+sub logit {
+	my ($priority, $msg) = @_; 
+	return 0 unless ($priority =~ /info|err|debug/);
+	openlog("obsdcp", 'pid,cons', 'user');
+	syslog($priority, $msg);
+	closelog();
+	return 1;
+}
+
+# This ARP idea needs a lot more work
+# Not even sure how useful it is.
+# Maybe better would be to get PF filter by MAC
+
+sub tie_mac {
+#	my $ip = shift;
+#	my $mac = shift;
+#	system("arp -s $ip $mac permanent");
+	return 1;
+}
+
+sub untie_mac {
+#	my $ip = shift;
+#	my $mac = shift;
+#	system("arp -d $ip");
+	return 1;
+}

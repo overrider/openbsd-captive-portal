@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# $OpenBSD: obsdcp,v 1.1 2012/02/19 11:34:36 robert Exp $
+
+daemon="/usr/local/bin/obsdcp"
+
+. /etc/rc.d/rc.subr
+
+pexp="obsdcp"
+
+rc_check() {
+	pkill -0 -f "/usr/local/bin/obsdcp"
+}
+
+rc_stop() {
+	pkill -f "/usr/local/bin/obsdcp"
+}
+
+rc_cmd $1

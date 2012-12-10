@@ -1,0 +1,1 @@
+inet 10.0.3.1 255.255.255.0 10.0.3.255 media autoselect mediaopt hostap nwid CaptivePortal chan 11 up

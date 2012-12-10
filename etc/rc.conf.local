@@ -1,0 +1,5 @@
+dhcpd_flags="athn0"
+httpd_flags=""
+named_flags=""
+pf="YES"
+pkg_scripts="obsdcp"
